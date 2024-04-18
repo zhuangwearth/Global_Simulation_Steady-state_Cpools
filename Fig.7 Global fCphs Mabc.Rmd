@@ -1,0 +1,593 @@
+---
+title: "Fig.7 Plot predicted and observed fraction of Cphs"
+output: html_notebook
+---
+Aim: Plot predicted and observed fraction of Cphs
+
+# Load libaray and data 
+```{r}
+library(ggplot2)
+library(ggpubr)
+library(rgdal) # contain readOGR
+library(raster)
+library(rgeos) # contain function "gSimplify"
+library(leaflet)
+library(broom) # if you plot with ggplot and need to turn sp data into dataframes
+library(oceanmap)
+```
+
+    
+```{r Load Coastline map}
+# load coastlines
+coastlines <- readOGR("../../inputData/map/ne_110m_coastline/ne_110m_coastline.shp")
+# simplify with a lower tolerance value (keeping more detail)
+coastlines_sim2 <- gSimplify(coastlines, 
+                             tol = .1, 
+                             topologyPreserve = TRUE)
+# turn the data into a spatial data frame 
+coastlines_sim2_df <- SpatialLinesDataFrame(coastlines_sim2,
+                                            coastlines@data) 
+```    
+## Load data of TSOC and Cphs 
+### Load observed
+```{r 1.0  Load TSOC HWSD observed}
+# Load TSOC from HWSD
+tsoc_hwsd = raster('../../inputData/HWSD/SOC_1m_0.5deg.tif')
+# The HWSD data (Regridded Harmonized World Soil Database v1.2. Data set) 
+# is available at http://dx.doi.org/10.3334/ORNLDAAC/1247
+
+poolname = c('x', 'y', 'Cpool')
+tsoc_df <-
+  as.data.frame(tsoc_hwsd , xy = TRUE)
+colnames(tsoc_df) = poolname
+``` 
+
+    
+```{r 1.0  Load MOC observed}
+# load bulk density
+bulkD_map = raster('../../inputData/HWSD/bulkD_1m_0.5deg.tif')
+# The data is available at http://dx.doi.org/10.3334/ORNLDAAC/1247
+
+# Load observed MOC
+#  The mineral-associated organic carbon dataset is available at  https://doi.org/10.5281/zenodo.6539765)
+# top MOC
+MOC_t = raster('../../inputData/MAOM_Globe/rawdata/moc_t.nc') # unit kgC/m2
+# sub MOC
+MOC_s = raster('../../inputData/MAOM_Globe/rawdata/moc_s.nc')
+
+# total MOC
+MOC_ras = MOC_s  + MOC_t
+poolname = c('x', 'y', 'Cpool')
+MOC_df <-
+  as.data.frame(MOC_ras, xy = TRUE)
+colnames(MOC_df) = poolname
+
+mean(na.omit(MOC_df$Cpool));
+sd(na.omit(MOC_df$Cpool))
+```
+
+### Load predicted Cphs by MIMICSa
+```{r 1.1  Cphs in MIMICSa }
+### Load predicted Cphs by MIMICSa
+soc_mod = read.csv('../../output/Cpools_MIMICSabc.csv')
+tsoc_Ma = soc_mod[,5] + soc_mod[,6] + soc_mod[,7] + soc_mod[,8] + soc_mod[,9]
+
+Ma = matrix(soc_mod[,7], ncol=720, nrow=360) 
+Ma = t(Ma)
+Ma_ras = matrix2raster(Ma)
+
+# add coords
+crs(Ma_ras) <- crs(bulkD_map)
+extent(Ma_ras) = extent(bulkD_map)
+ 
+Ma_df = as.data.frame(Ma_ras, xy=T)
+colnames(Ma_df) = poolname
+
+```
+
+### Load predicted Cphs by MIMICSb
+```{r 1.2  Cphs in MIMICSb default Qmax }
+### Load predicted Cphs by MIMICSb
+tsoc_Mb = soc_mod[,12] + soc_mod[,13] + soc_mod[,14] + soc_mod[,15] + soc_mod[,16] 
+Mb = matrix(soc_mod[,14], ncol=720, nrow=360) 
+Mb = t(Mb)
+Mb_ras = matrix2raster(Mb)
+
+# add coords
+crs(Mb_ras) <- crs(bulkD_map)
+extent(Mb_ras) = extent(bulkD_map)
+  
+Mb_df = as.data.frame(Mb_ras, xy=T)
+colnames(Mb_df) = poolname
+```
+
+### Load predicted Cphs by MIMICSc
+```{r 1.3 Mc: MOC Mb with MOCmax }
+### Load predicted Cphs by MIMICSc
+tsoc_Mc =  soc_mod[,19] + soc_mod[,20] + soc_mod[,21] + soc_mod[,22] + soc_mod[,23] 
+Mc = matrix(soc_mod[,21], ncol=720, nrow=360)
+Mc = t(Mc)
+Mc_ras = matrix2raster(Mc)
+
+# add coords
+crs(Mc_ras) <- crs(bulkD_map)
+extent(Mc_ras) = extent(bulkD_map)
+  
+Mc_df = as.data.frame(Mc_ras, xy=T)
+colnames(Mc_df) = poolname
+```
+
+### Calculate fraction of Cphs: fma, fmb, fmc
+```{r function transform a vector to dataframe of map}
+ras_map = function(ivar)
+   {Mc = matrix(ivar, ncol=720, nrow=360) 
+    Mc = t(Mc)
+    Mc_ras = matrix2raster(Mc)
+
+    # add coords
+    crs(Mc_ras) <- crs(bulkD_map)
+    extent(Mc_ras) = extent(bulkD_map)
+      
+    return(Mc_ras)
+}
+```
+ 
+```{r calculate fraction of Cphs}
+res(Ma_ras) = c(0.5, 0.5)
+res(Mb_ras) = c(0.5, 0.5)
+res(Mc_ras) = c(0.5, 0.5)
+
+fma_ras = Ma_ras/ras_map(tsoc_Ma)
+fmb_ras = Mb_ras/ras_map(tsoc_Mb)
+fmc_ras = Mc_ras/ras_map(tsoc_Mc)
+
+fma_df <- as.data.frame(fma_ras, xy = TRUE)
+colnames(fma_df) = poolname
+
+fmb_df <- as.data.frame(fmb_ras, xy = TRUE)
+colnames(fmb_df) = poolname
+
+fmc_df <- as.data.frame(fmc_ras, xy = TRUE)
+colnames(fmc_df) = poolname
+
+summary(fma_df);
+summary(fmb_df);
+summary(fmc_df);
+```
+
+# Plot maps of fraction of Cphs
+## Plot observed
+```{r calculate fMOC from observation}
+# load TSOC from HWSD dataset
+soc_hwsd = raster('../../inputData/HWSD/SOC_1m_0.5deg.tif')
+poolname = c('x', 'y', 'Cpool')
+hwsd_df <-
+  as.data.frame(soc_hwsd, xy = TRUE)
+colnames(hwsd_df) = poolname
+
+# fMOC
+fMOC_obs = data.frame(x = MOC_df$x,
+                      y = MOC_df$y,
+                      Cpool = MOC_df$Cpool/hwsd_df$Cpool)
+```
+
+```{r}
+mean(na.omit(MOC_df$Cpool));
+mean(na.omit(MOC_df$Cpool))/mean(na.omit(hwsd_df$Cpool));
+summary(fMOC_obs)
+```
+
+```{r}
+fMOC_obs = na.omit(fMOC_obs)
+length(fMOC_obs[fMOC_obs$Cpool>1,]$Cpool)/length(fMOC_obs$Cpool)
+```
+####!!!! Note !!!!!
+#### There are over 89% points where fraction of MOC in TSOC (HWSD observation) has values over 1.0 
+
+```{r}
+ggplot() + 
+  geom_tile(
+    data = na.omit(fMOC_obs), aes(x = x, y = y, fill = Cpool)
+  ) 
+```
+
+## Plot maps of fraction of Cphs predected by three versions of MIMICS model
+### Set theme and color
+```{r just for plot to uniform legend}
+# for plot to uniform legend
+fma_df[fma_df$x ==  -179.25 & fma_df$y ==  -89.75,]$Cpool = 1
+fmb_df[fmb_df$x ==  -179.25 & fmb_df$y ==  -89.75,]$Cpool = 1
+fmc_df[fmc_df$x ==  -179.25 & fmc_df$y ==  -89.75,]$Cpool = 1
+```
+
+```{r}
+library(wesanderson)
+# Gradient color
+pal <- wes_palette("Zissou1", 100, type = "continuous")
+
+color_bands_frac = c(# 0-10
+  colorRampPalette(c("white",      "grey"))(10 ),      # 0-1
+  colorRampPalette(c("grey",      "yellow"))(10),      # 1-2
+  colorRampPalette(c("yellow",      "gold2"))(10),     # 2-3
+  colorRampPalette(c("gold2",     "greenyellow"))(10), # 3-5
+  colorRampPalette(c("greenyellow",  "green"))(10),    # 5-6
+  colorRampPalette(c("green", "green4"))(10),          # 6-8
+  colorRampPalette(c("green4", "blue"))(10),           # 8-10
+  colorRampPalette(c("blue", "blue4"))(10),            # 10-15
+  colorRampPalette(c("blue4",   "purple"))(10),        # 15-20
+  colorRampPalette(c("purple",   "red"))(10),          # 20-25
+  colorRampPalette(c("red", "red3"))(10))              # 25-30
+
+```
+
+```{r}
+### define theme
+theme_new = function(base_size=12)
+{theme(panel.background = element_rect(fill='white', colour=NA),
+       panel.grid = element_blank(),
+       legend.position = 'bottom',
+       legend.key.height = unit(0.25, 'cm'),
+       legend.key.width = unit(1.85, 'cm'),
+       axis.ticks.length = unit(-0.1, 'cm'),
+       axis.text = element_text(size= base_size, margin = unit(-0.3, 'cm')),
+       axis.title = element_text(size= base_size),
+       legend.text = element_text(size= 11),
+       legend.title = element_text(size= 12))} 
+theme_set(theme_bw())
+
+lat.lab = c('60°S', '30°S', '0°', '30°N', '60°N', '90°N')
+long.lab = c('180°W', '120°W', '60°W', '0°', '60°E', '120°E', '180°E')
+```
+
+
+### Plot map of fraction of Cphs predected by  MIMICSa
+```{r Plot Panel a: fma_df}
+# MIMICSa
+stitle = 18
+
+p.fMa = ggplot() + 
+  geom_tile(
+    data = na.omit(fma_df), aes(x = x, y = y, fill = Cpool)
+  ) +
+  geom_point(aes(x=-179.25, y=-89.75),colour="white") + # remove added point for plotting
+  geom_path(data = coastlines_sim2_df, 
+            aes(x = long, y = lat, group = group),
+            size=0.015) +
+  scale_fill_gradientn(colours = color_bands_frac,
+                       name = latex2exp::TeX('$\\textit{f}_{Phs}$  ')) +
+  scale_x_continuous(limits = c(-180, 180), 
+                     breaks = seq(-180, 180, 60),
+                     label  = long.lab) +
+  scale_y_continuous(limits = c(-60, 90), 
+                     breaks = seq(-60, 90, 30),
+                     label  = lat.lab) +
+  theme(axis.text.y.left = element_text(margin = unit(c(1, 1,1, 1), "mm"))) +
+  theme_new()+
+  labs(title = latex2exp::TeX('( \\textbf{a} ) $\\textit{f}_{Phs}$ for MIMICSa'), size = stitle) +
+  # ggtitle('(a) MIMICSa')+
+  xlab('')+
+  ylab('')+
+  coord_quickmap()
+
+# save Panel a
+p.fMa
+ggsave('Fig.7-a.tif',width = 6, height = 4, dpi= 300)
+```
+
+### Plot maps of fraction of Cphs predected by  MIMICSb
+```{r Plot Panel c: fmb_df}
+# MIMICSb
+p.fMb = ggplot() + 
+  geom_tile(
+    data = na.omit(fmb_df), aes(x = x, y = y, fill = Cpool)
+  ) +
+  geom_point(aes(x=-179.25, y=-89.75),colour="white") + # remove added point for plotting
+  geom_path(data = coastlines_sim2_df, 
+            aes(x = long, y = lat, group = group),
+            size=0.015) +
+  scale_fill_gradientn(colours = color_bands_frac,
+                       name = latex2exp::TeX('$\\textit{f}_{Phs}$  ')) +
+  scale_x_continuous(limits = c(-180, 180), 
+                     breaks = seq(-180, 180, 60),
+                     label  = long.lab) +
+  scale_y_continuous(limits = c(-60, 90), 
+                     breaks = seq(-60, 90, 30),
+                     label  = lat.lab) +
+  theme(axis.text.y.left = element_text(margin = unit(c(1, 1,1, 1), "mm"))) +
+  theme_new()+
+  labs(title = latex2exp::TeX('( \\textbf{c} ) $\\textit{f}_{Phs}$ for MIMICSb'), size = stitle) +
+  # ggtitle('(a) MIMICSa')+
+  xlab('')+
+  ylab('')+
+  coord_quickmap()
+
+# save Panel c
+p.fMb
+ggsave('Fig.7-c.tif',width = 6, height = 4, dpi= 300)
+```
+
+### Plot map of fraction of Cphs predected by  MIMICSc
+```{r Plot Panel e: fmc_df  }
+# MIMICSc
+p.fMc = ggplot() + 
+  geom_tile(
+    data = na.omit(fmc_df), aes(x = x, y = y, fill = Cpool)
+  ) +
+  geom_point(aes(x=-179.25, y=-89.75),colour="white") + # remove added point for plotting
+  geom_path(data = coastlines_sim2_df, 
+            aes(x = long, y = lat, group = group),
+            size=0.015) +
+  scale_fill_gradientn(colours = color_bands_frac,
+                       name = latex2exp::TeX('$\\textit{f}_{Phs}$  ')) +
+  scale_x_continuous(limits = c(-180, 180), 
+                     breaks = seq(-180, 180, 60),
+                     label  = long.lab) +
+  scale_y_continuous(limits = c(-60, 90), 
+                     breaks = seq(-60, 90, 30),
+                     label  = lat.lab) +
+  theme(axis.text.y.left = element_text(margin = unit(c(1, 1,1, 1), "mm"))) +
+  theme_new()+
+  labs(title = latex2exp::TeX('( \\textbf{e} ) $\\textit{f}_{Phs}$ for MIMICSc'), size = stitle) +
+  # ggtitle('(a) MIMICSa')+
+  xlab('')+
+  ylab('')+
+  coord_quickmap()
+
+# save Panel e
+p.fMc
+ggsave('Fig.7-e.tif',width = 6, height = 4, dpi= 300)
+```
+
+### Plot map of NPP
+```{r}
+# load NPP
+npp_map = raster('../../inputData/npp_110years_CLM_BG1_gC_per_m2_year.tif')
+npp.df <-
+  as.data.frame(npp_map, xy = TRUE) 
+colnames(npp.df) = c('x', 'y', 'NPP')
+npp_df <- na.omit(npp.df)
+summary(npp_df)
+# set zero NPP as NA
+npp_df[npp_df==0] = NA
+npp_df <- na.omit(npp_df)
+
+## panel b: NPP 
+pnpp = ggplot() + 
+  geom_tile(
+    data = npp_df, aes(x = x, y = y, fill = NPP)
+  ) + 
+  geom_path(data = coastlines_sim2_df, 
+            aes(x = long, y = lat, group = group),
+            size=0.015) +
+  scale_fill_gradientn(colours = color_bands_frac) +
+  scale_x_continuous(limits = c(-180, 180), 
+                     breaks = seq(-180, 180, 60),
+                     label  = long.lab) +
+
+  scale_y_continuous(limits = c(-60, 90), 
+                     breaks = seq(-60, 90, 30),
+                     label  = lat.lab,
+                     position = "right", 
+                     sec.axis = sec_axis(~., labels = NULL)) +
+  theme(axis.text.y.right = element_text(margin = unit(c(1, 1,1, 1), "mm")),
+        axis.ticks.y.left = element_blank()) +
+  theme_new()+
+  labs(title = latex2exp::TeX('( \\textbf{b} ) NPP'), size = stitle) +
+  #ggtitle('(c) NPP')+
+  xlab('')+
+  ylab('')+
+  coord_quickmap()
+ 
+# save Panel b
+pnpp
+ggsave('Fig.7-b.tif',width = 6, height = 4, dpi= 300)
+```
+
+
+### Plot map of CLAY content
+```{r CLAY + SLIT}
+# load CLAY + SLIT
+clay_map = raster('../../inputData/HWSD/CLAY_1m_0.5deg.tif')
+
+library(rgdal)
+library(ncdf4)
+# load silt data from HWSD dataset
+path_hwsd = 'D:/Data/HWSD/rawdata/HWSD_1247/data/'
+t_silt_ras = raster('../../inputData/HWSD/T_SILT.nc4')
+s_silt_ras = raster('../../inputData/HWSD/S_SILT.nc4')
+
+silt_ras = t_silt_ras*0.3 + s_silt_ras*0.7
+
+silt_ras = aggregate(silt_ras, fact=10)
+
+clay_silt = clay_map + silt_ras
+plot(clay_silt)
+```
+## Panel d: CLAY  map
+```{r Panel d: CLAY  MAP}
+# plot 
+clay.df <-
+  as.data.frame(clay_map , xy = TRUE) 
+colnames(clay.df) = c('x', 'y', 'content')
+
+# just for plot to uniform legend
+clay.df[clay.df$x ==  -179.25 & clay.df$y ==  -89.75,]$content = 1
+
+## add figure 
+
+# plot
+p_clay = ggplot() + 
+  geom_tile(
+    data = na.omit(clay.df), aes(x = x, y = y, fill = content)
+  ) + 
+  geom_point(aes(x=-179.25, y=-89.75),colour="white") + # remove added point for plotting
+  geom_path(data = coastlines_sim2_df, 
+            aes(x = long, y = lat, group = group),
+            size=0.015) +
+  scale_fill_gradientn(colours = color_bands_frac,
+                       name = 'content (%)') +
+  scale_x_continuous(limits = c(-180, 180), 
+                     breaks = seq(-180, 180, 60),
+                     label  = long.lab) +
+
+  scale_y_continuous(limits = c(-60, 90), 
+                     breaks = seq(-60, 90, 30),
+                     label  = lat.lab,
+                     position = "right", 
+                     sec.axis = sec_axis(~., labels = NULL)) +
+  theme(axis.text.y.right = element_text(margin = unit(c(1, 1,1, 1), "mm")),
+        axis.ticks.y.left = element_blank()) +
+  theme_new()+
+  labs(title = latex2exp::TeX('( \\textbf{d} ) Clay content'), size = stitle) +
+  #ggtitle('(c) NPP')+
+  xlab('')+
+  ylab('')+
+  coord_quickmap()
+# save Panel d
+p_clay
+ggsave('Fig.7-d.tif',width = 6, height = 4, dpi= 300)
+```
+
+### Plot map of CLAY + SLIT content
+```{r Panel f: CLAY silt MAP}
+# load data
+clay_silt.df <-
+  as.data.frame(clay_silt , xy = TRUE) 
+colnames(clay_silt.df) = c('x', 'y', 'content')
+
+# just for plot to uniform legend
+clay_silt.df[clay_silt.df$x ==  -179.25 & clay_silt.df$y ==  -89.75,]$content = 1
+
+# plot
+p_clay_silt = ggplot() + 
+  geom_tile(
+    data = na.omit(clay_silt.df), aes(x = x, y = y, fill = content)
+  ) + 
+  geom_point(aes(x=-179.25, y=-89.75),colour="white") + # remove added point for plotting
+  geom_path(data = coastlines_sim2_df, 
+            aes(x = long, y = lat, group = group),
+            size=0.015) +
+  scale_fill_gradientn(colours = color_bands_frac,
+                       name = 'content (%)') +
+  scale_x_continuous(limits = c(-180, 180), 
+                     breaks = seq(-180, 180, 60),
+                     label  = long.lab) +
+
+  scale_y_continuous(limits = c(-60, 90), 
+                     breaks = seq(-60, 90, 30),
+                     label  = lat.lab,
+                     position = "right", 
+                     sec.axis = sec_axis(~., labels = NULL)) +
+  theme(axis.text.y.right = element_text(margin = unit(c(1, 1,1, 1), "mm")),
+        axis.ticks.y.left = element_blank()) +
+  theme_new()+
+  labs(title = latex2exp::TeX('( \\textbf{f} ) Clay plus silt content'), size = stitle) +
+  #ggtitle('(c) NPP')+
+  xlab('')+
+  ylab('')+
+  coord_quickmap()
+#save Panel f
+p_clay_silt
+ggsave( 'Fig.7-f.tif',width = 6, height = 4, dpi= 300)
+```
+
+### save all the panels together
+```{r final plot}
+ggarrange(p.fMa, pnpp,
+          p.fMb, p_clay,
+          p.fMc, p_clay_silt,
+          nrow=3, ncol=2)
+
+ggsave('Fig.7 Global fCphs Mabc.eps',width = 10, height = 11)
+```
+
+# Calculate correlation between fMOC and environmental factors (NPP, minerals)
+
+## calculate correlation between Clay concent vs. Cphs 
+
+```{r cor clay in MIMICSa}
+# MIMICSa
+Ma_cor = data.frame(x = clay.df$content, y = Ma_df$Cpool)
+Ma_cor = na.omit(Ma_cor)
+cor(Ma_cor$x, Ma_cor$y)
+```
+
+```{r cor clay in MIMICSb}
+# MIMICSb
+Mb_cor = data.frame(x = clay.df$content, y = Mb_df$Cpool)
+Mb_cor = na.omit(Mb_cor)
+cor(Mb_cor$x, Mb_cor$y)
+```
+
+```{r cor clay in MIMICSc}
+# MIMICSc
+MC_cor = data.frame(x = clay.df$content, y = Mc_df$Cpool)
+MC_cor = na.omit(MC_cor)
+cor(MC_cor$x, MC_cor$y)
+```
+
+## calculate correlation between clay concent vs. fraction of Cphs 
+```{r cor fCphs clay in MIMICSa}
+# MIMICSa
+fMa_cor = data.frame(x = clay.df$content, y = fma_df$Cpool)
+fMa_cor = na.omit(fMa_cor)
+cor(fMa_cor$x, fMa_cor$y)
+```
+```{r cor fCphs clay in MIMICSb}
+# MIMINCSb
+fMb_cor = data.frame(x = clay.df$content, y = fmb_df$Cpool)
+fMb_cor = na.omit(fMb_cor)
+cor(fMb_cor$x, fMb_cor$y)
+```
+```{r cor f clay in MIMICSc}
+# MIMICSc
+fMC_cor = data.frame(x = clay.df$content, y = fmc_df$Cpool)
+fMC_cor = na.omit(fMC_cor)
+cor(fMC_cor$x, fMC_cor$y)
+```
+## calculate correlation between clay_silt concent vs. Cphs 
+```{r cor clay_silt in MIMICSa}
+# MIMICSa
+Ma_cor = data.frame(x = clay_silt.df$content, y = Ma_df$Cpool)
+Ma_cor = na.omit(Ma_cor)
+cor(Ma_cor$x, Ma_cor$y)
+```
+```{r cor clay_silt in MIMICSb}
+# MIMICSb
+Mb_cor = data.frame(x = clay_silt.df$content, y = Mb_df$Cpool)
+Mb_cor = na.omit(Mb_cor)
+cor(Mb_cor$x, Mb_cor$y)
+```
+```{r cor clay_silt in MIMICSc}
+# MIMICSc
+MC_cor = data.frame(x = clay_silt.df$content, y = Mc_df$Cpool)
+MC_cor = na.omit(MC_cor)
+cor(MC_cor$x, MC_cor$y)
+```
+
+## calculate correlation between clay_silt concent vs. fraction of Cphs 
+```{r cor f clay_silt in MIMICSa}
+# MIMICSa
+fMa_cor = data.frame(x = clay_silt.df$content, y = fma_df$Cpool)
+fMa_cor = na.omit(fMa_cor)
+cor(fMa_cor$x, fMa_cor$y)
+```
+```{r cor f clay_silt in MIMICSb}
+# MIMICSb
+fMb_cor = data.frame(x = clay_silt.df$content, y = fmb_df$Cpool)
+fMb_cor = na.omit(fMb_cor)
+cor(fMb_cor$x, fMb_cor$y)
+```
+```{r cor f clay_silt in MIMICSc}
+# MIMICSc
+fMC_cor = data.frame(x = clay_silt.df$content, y = fmc_df$Cpool)
+fMC_cor = na.omit(fMC_cor)
+cor(fMC_cor$x, fMC_cor$y)
+```
+## calculate correlation between NPP vs. fraction of Cphs 
+```{r cor npp}
+# The spatial correlation between 
+Ma_cor = data.frame(x = npp.df$NPP, y = fma_df$Cpool)
+Ma_cor = na.omit(Ma_cor)
+cor(Ma_cor$x, Ma_cor$y)
+```

@@ -1,0 +1,328 @@
+---
+title: "Plot Fig.5 Global TSOC HWSD Mabc"
+output: html_notebook
+---
+Aim: Plot Global TSOC from observation (HWSD) and simulation by three versions of MIMICS 
+
+Step:
+(1) calculate total SOC including 5 pools；
+(2) Plot maps of total SOC including 5 pools
+
+# Load library and data 
+```{r}
+library(ggplot2)
+library(ggpubr)
+library(rgdal) # contain readOGR
+library(raster)
+library(rgeos) # contain function "gSimplify"
+library(leaflet)
+library(broom) # if you plot with ggplot and need to turn sp data into dataframes
+library(oceanmap)
+```
+ 
+    
+```{r Load Coastline map}
+# Load Coastline map
+coastlines <- readOGR("../../inputData/map/ne_110m_coastline/ne_110m_coastline.shp")
+
+# simplify with a lower tolerance value (keeping more detail)
+coastlines_sim2 <- gSimplify(coastlines, 
+                             tol = .1, 
+                             topologyPreserve = TRUE)
+# turn the data into a spatial data frame 
+coastlines_sim2_df <- SpatialLinesDataFrame(coastlines_sim2,
+                                            coastlines@data) 
+```    
+    
+```{r 1.0  Load top SOC in HWSD dataset}
+# Load top SOC in HWSD dataset
+soc_hwsd = raster('../../inputData/HWSD/SOC_1m_0.5deg.tif')
+# The HWSD data (Regridded Harmonized World Soil Database v1.2. Data set) 
+# is available at http://dx.doi.org/10.3334/ORNLDAAC/1247
+
+poolname = c('x', 'y', 'Cpool')
+##  TSOC 
+hwsd_df <-
+  as.data.frame(soc_hwsd, xy = TRUE)
+colnames(hwsd_df) = poolname
+
+mean(na.omit(hwsd_df$Cpool));
+min(na.omit(hwsd_df$Cpool));
+max(na.omit(hwsd_df$Cpool))
+```
+## Load TSOC predicted by MIMICSa
+```{r 1.1  MIMICSa with 5 pools}
+### Ma
+soc_Ma = read.csv('../../output/Cpools_MIMICSabc.csv')
+soc_Mb = read.csv('../../output/Cpools_MIMICSabc.csv')
+soc_Mc = read.csv('../../output/Cpools_MIMICSabc.csv')
+soc_Mabc = cbind(soc_Ma[,1:9], soc_Mb[,3:9], soc_Mc[,3:9])
+write.csv(soc_Mabc, file = '../../output/Cpools_MIMICSabc.csv', col.names=F)
+soc_mod = read.csv('../../output/Cpools_MIMICSabc.csv')
+
+soc_mod$soc5_Ma = soc_mod[,5] + soc_mod[,6] + soc_mod[,7] + soc_mod[,8] + soc_mod[,9]
+
+Ma = matrix(soc_mod$soc5_Ma, ncol=720, nrow=360) 
+Ma = t(Ma)
+Ma_ras = matrix2raster(Ma)
+
+# add coords
+crs(Ma_ras) <- crs(soc_hwsd)
+extent(Ma_ras) = extent(soc_hwsd)
+  
+Ma_df = as.data.frame(Ma_ras, xy=T)
+colnames(Ma_df) = poolname
+
+mean(na.omit(Ma_df$Cpool));
+min(na.omit(Ma_df$Cpool));
+max(na.omit(Ma_df$Cpool))
+```
+## Load TSOC predicted by MIMICSb
+```{r 1.2  MIMICSb default Qmax with 5 pools}
+### Mb
+soc_mod$soc5_Mb = soc_mod[,12] + soc_mod[,13] + soc_mod[,14] + soc_mod[,15] + soc_mod[,16]
+
+Mb = matrix(soc_mod$soc5_Mb, ncol=720, nrow=360) 
+Mb = t(Mb)
+Mb_ras = matrix2raster(Mb)
+
+# add coords
+crs(Mb_ras) <- crs(soc_hwsd)
+extent(Mb_ras) = extent(soc_hwsd)
+  
+Mb_df = as.data.frame(Mb_ras, xy=T)
+colnames(Mb_df) = poolname
+
+mean(na.omit(Mb_df$Cpool));
+min(na.omit(Mb_df$Cpool));
+max(na.omit(Mb_df$Cpool));
+boxplot(Mb_df$Cpool)
+```
+
+## Load TSOC predicted by MIMICSc
+```{r 1.3  Mc with MOCmax without litter pools, containing 5 pools}
+### Mc
+soc_mod$soc5_Mc = soc_mod[,19] + soc_mod[,20] + soc_mod[,21] + soc_mod[,22] + soc_mod[,23] 
+
+Mc = matrix(soc_mod$soc5_Mc, ncol=720, nrow=360) 
+Mc = t(Mc)
+Mc_ras = matrix2raster(Mc)
+
+# add coords
+crs(Mc_ras) <- crs(soc_hwsd)
+extent(Mc_ras) = extent(soc_hwsd)
+  
+Mc_df = as.data.frame(Mc_ras, xy=T)
+colnames(Mc_df) = poolname
+
+mean(na.omit(Mc_df$Cpool));
+min(na.omit(Mc_df$Cpool));
+max(na.omit(Mc_df$Cpool))
+```
+
+# Plot maps of total SOC including 5 pools
+```{r just for plot to uniform legend}
+# just for plot to uniform legend
+max = 40
+hwsd_df[hwsd_df$x ==  -179.25 & hwsd_df$y ==  89.75,]$Cpool = max
+Ma_df[Ma_df$x ==  -179.25 & Ma_df$y ==  89.75,]$Cpool = max
+
+Mc_df[Mc_df$x ==  -179.25 & Mc_df$y ==  89.75,]$Cpool = max
+Mc_df = Mc_df[Mc_df$Cpool <= max,]
+```
+
+```{r}
+# just for plot to uniform legend
+Mb_df[Mb_df$x ==  -179.25 & Mb_df$y ==  89.75,]$Cpool = max
+Mb_df = Mb_df[Mb_df$Cpool <= max,] # remove abnormal point
+boxplot(Mb_df$Cpool)
+```
+
+```{r}
+## set color bands
+color_bands_TSOC5 = c(# 0-10
+  colorRampPalette(c("white",      "grey"))(10 ),      # 0-1
+  colorRampPalette(c("grey",      "yellow"))(10),      # 1-2
+  colorRampPalette(c("yellow",      "gold2"))(10),     # 2-3
+  colorRampPalette(c("gold2",     "greenyellow"))(20), # 3-5
+  colorRampPalette(c("greenyellow",  "green"))(10),    # 5-6
+  colorRampPalette(c("green", "green4"))(20),          # 6-8
+  colorRampPalette(c("green4", "blue"))(20),           # 8-10
+  colorRampPalette(c("blue", "blue4"))(50),            # 10-15
+  colorRampPalette(c("blue4",   "purple"))(50),        # 15-20
+  colorRampPalette(c("purple",   "red"))(50),          # 20-25
+  colorRampPalette(c("red", "red4"))(50),              # 25-30
+  colorRampPalette(c("red4", "hotpink"))(100))         # 30-40
+```
+
+
+```{r set theme}
+### define theme
+theme_new = function(base_size=12)
+{theme(panel.background = element_rect(fill='white', colour=NA),
+       panel.grid = element_blank(),
+       legend.position = 'bottom',
+       legend.key.height = unit(0.25, 'cm'),
+       legend.key.width = unit(1.85, 'cm'),
+       axis.ticks.length = unit(-0.1, 'cm'),
+       axis.text = element_text(size= base_size, margin = unit(-0.3, 'cm')),
+       axis.title = element_text(size= base_size),
+       legend.text = element_text(size= 13),
+       legend.title = element_text(size= 13))} 
+theme_set(theme_bw())
+
+
+# Ma
+lat.lab = c('60°S', '30°S', '0°', '30°N', '60°N', '90°N')
+long.lab = c('180°W', '120°W', '60°W', '0°', '60°E', '120°E', '180°E')
+
+```
+
+# Plot
+## Panel a: TSOC for HWSD
+```{r 2.0 TSOC  for HWSD}
+stitle = 18
+# Fig
+p.hwsd = ggplot() + 
+  geom_tile(
+    data = na.omit(hwsd_df), aes(x = x, y = y, fill = Cpool)
+  ) +
+  geom_path(data = coastlines_sim2_df, 
+            aes(x = long, y = lat, group = group),
+            size=0.015) +
+  scale_fill_gradientn(colours = color_bands_TSOC5,
+                       name = latex2exp::TeX('$\\TSOC$')) +
+  scale_x_continuous(limits = c(-180, 180), 
+                     breaks = seq(-180, 180, 60),
+                     label  = long.lab) +
+  scale_y_continuous(limits = c(-60, 90), 
+                     breaks = seq(-60, 90, 30),
+                     label  = lat.lab) +
+  theme(axis.text.y.left = element_text(margin = unit(c(1, 1,1, 1), "mm"))) +
+  theme_new()+
+  labs(title = latex2exp::TeX('( \\textbf{a} ) TSOC (kg C $\\m^{-2}$) observed from HWSD'), size = stitle) +
+  # ggtitle('(a) MIMICSa')+
+  xlab('')+
+  ylab('')+
+  coord_quickmap()
+
+# save plot for HWSD data
+p.hwsd
+ggsave('Fig.5-a.jpg',width = 6, height = 4, dpi= 300)
+```
+
+## Panel b: TSOC for MIMICSa
+```{r 2.1 TSOC for MIMICSa}
+# litter pools is not included
+# Fig.
+p.TOC5_Ma = ggplot() + 
+  geom_tile(
+    data = na.omit(Ma_df), aes(x = x, y = y, fill = Cpool)
+  ) +
+  geom_path(data = coastlines_sim2_df, 
+            aes(x = long, y = lat, group = group),
+            size=0.015) +
+  scale_fill_gradientn(colours = color_bands_TSOC5,
+                       name = latex2exp::TeX('$\\TSOC$')) +
+  scale_x_continuous(limits = c(-180, 180), 
+                     breaks = seq(-180, 180, 60),
+                     label  = long.lab) +
+  scale_y_continuous(limits = c(-60, 90), 
+                     breaks = seq(-60, 90, 30),
+                     label  = lat.lab,
+                     position = "right", 
+                     sec.axis = sec_axis(~., labels = NULL)) +
+  theme(axis.text.y.right = element_text(margin = unit(c(1, 1,1, 1), "mm")),
+        axis.ticks.y.left = element_blank()) +
+  theme_new()+
+  labs(title = latex2exp::TeX('( \\textbf{b} ) TSOC for MIMICSa '), size = stitle) +
+  # ggtitle('(a) MIMICSa')+
+  xlab('')+
+  ylab('')+
+  coord_quickmap()
+
+#  save plot for Ma
+p.TOC5_Ma
+ggsave('Fig.5-b.jpg',width = 6, height = 4, dpi= 300)
+```
+
+## Panel c: TSOC for MIMICSb
+```{r 2.2 TSOC for MIMICSb}
+# Fig.
+p.TOC5_Mb = ggplot() + 
+  geom_tile(
+    data = na.omit(Mb_df), aes(x = x, y = y, fill = Cpool)
+  ) +
+  geom_path(data = coastlines_sim2_df, 
+            aes(x = long, y = lat, group = group),
+            size=0.015) +
+  scale_fill_gradientn(colours = color_bands_TSOC5,
+                       name = latex2exp::TeX('$\\TSOC$')) +
+  scale_x_continuous(limits = c(-180, 180), 
+                     breaks = seq(-180, 180, 60),
+                     label  = long.lab) +
+  scale_y_continuous(limits = c(-60, 90), 
+                     breaks = seq(-60, 90, 30),
+                     label  = lat.lab) +
+  theme(axis.text.y.left = element_text(margin = unit(c(1, 1,1, 1), "mm"))) +
+  theme_new()+
+  labs(title = latex2exp::TeX('( \\textbf{c} ) TSOC for MIMICSb with default $\\textit{Q}_{max}$'), size = stitle) +
+  # ggtitle('(a) MIMICSa')+
+  xlab('')+
+  ylab('')+
+  coord_quickmap()
+
+# save plot for Mb
+p.TOC5_Mb
+ggsave('Fig.5-c.jpg',width = 6, height = 4, dpi= 300)
+```
+
+## Panel d: TSOC for MIMICSc
+```{r 2.3 TSOC for MIMICSc}
+# MIMICSc
+p.TOC5_Mc = ggplot() + 
+  geom_tile(
+    data = na.omit(Mc_df), aes(x = x, y = y, fill = Cpool)
+  ) +
+  geom_path(data = coastlines_sim2_df, 
+            aes(x = long, y = lat, group = group),
+            size=0.015) +
+  scale_fill_gradientn(colours = color_bands_TSOC5,
+                       name = latex2exp::TeX('$\\TSOC$')) +
+  scale_x_continuous(limits = c(-180, 180), 
+                     breaks = seq(-180, 180, 60),
+                     label  = long.lab) +
+  scale_y_continuous(limits = c(-60, 90), 
+                     breaks = seq(-60, 90, 30),
+                     label  = lat.lab,
+                     position = "right", 
+                     sec.axis = sec_axis(~., labels = NULL)) +
+  theme(axis.text.y.right = element_text(margin = unit(c(1, 1,1, 1), "mm")),
+        axis.ticks.y.left = element_blank()) +
+  theme_new()+
+  labs(title = latex2exp::TeX('( \\textbf{d} ) TSOC for MIMICSc (i.e. MIMICSb with $\\MOC_{max}$)'), size = stitle) +
+  # ggtitle('(a) MIMICSa')+
+  xlab('')+
+  ylab('')+
+  coord_quickmap() 
+# save plot for Mc}
+p.TOC5_Mc
+ggsave('Fig.5-d',width = 6, height = 4, dpi= 300)
+```
+
+```{r final plot}
+ggarrange(p.hwsd, p.TOC5_Ma,  p.TOC5_Mb, p.TOC5_Mc,
+          widths = c(4, 4),
+          nrow=2, ncol=2)
+```
+
+
+```{r save plot}
+ggsave('Fig.5 Global TSOC HWSD Mabc maps.eps',width = 12, height = 8)
+ggsave('Fig.5 Global TSOC HWSD Mabc maps.jpg',width = 12, height = 8, dpi= 600)
+```
+
+
+
+
+
